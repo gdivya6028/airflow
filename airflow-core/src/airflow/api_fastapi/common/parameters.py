@@ -852,6 +852,37 @@ class _TagsFilter(BaseParam[_TagFilterModel]):
         return cls().set_value(_TagFilterModel(tags=tags, tags_match_mode=tags_match_mode))
 
 
+class _DagRunTagsFilter(BaseParam[_TagFilterModel]):
+    """Filter on tags."""
+
+    def to_orm(self, select: Select) -> Select:
+        if self.skip_none is False:
+            raise ValueError(f"Cannot set 'skip_none' to False on a {type(self)}")
+
+        if not self.value or not self.value.tags:
+            return select
+
+        conditions = [
+            sql_select(1)
+            .select_from(DagModel)
+            .join(DagTag)
+            .where(DagModel.dag_id == DagRun.dag_id, DagTag.name == tag)
+            .exists()
+            for tag in self.value.tags
+        ]
+
+        operator = or_ if not self.value.tags_match_mode or self.value.tags_match_mode == "any" else and_
+        return select.where(operator(*conditions))
+
+    @classmethod
+    def depends(
+        cls,
+        tags: list[str] = Query(default_factory=list),
+        tags_match_mode: Literal["any", "all"] | None = None,
+    ) -> _DagRunTagsFilter:
+        return cls().set_value(_TagFilterModel(tags=tags, tags_match_mode=tags_match_mode))
+
+
 class _OwnersFilter(BaseParam[list[str]]):
     """Filter on owners."""
 
@@ -1120,6 +1151,7 @@ QueryDagIdPrefixPatternSearchWithNone = Annotated[
     Depends(prefix_search_param_factory(DagModel.dag_id, "dag_id_prefix_pattern", False)),
 ]
 QueryTagsFilter = Annotated[_TagsFilter, Depends(_TagsFilter.depends)]
+QueryDagRunTagsFilter = Annotated[_DagRunTagsFilter, Depends(_DagRunTagsFilter.depends)]
 QueryOwnersFilter = Annotated[_OwnersFilter, Depends(_OwnersFilter.depends)]
 
 
